@@ -1,0 +1,20 @@
+services:
+  nginx:
+    image: "nginxinc/nginx-unprivileged:latest"
+#    image: nginx:alpine-slim
+    pull_policy: daily
+    ports:
+      - "8010:8010"
+    logging:
+      driver: "journald"
+    volumes:
+      - type: bind
+        source: /home/ace-user/ace/nginx/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+      - type: bind
+        source: /home/ace-user/ace/nginx/conf/
+        target: /nginx_conf/
+        read_only: true
+    cap_drop:
+      - ALL

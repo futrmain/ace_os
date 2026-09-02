@@ -1,0 +1,9 @@
+# Local deploy script (contains environment-specific details)
+/deploy
+
+# Secrets: OpenAI API key etc. (compose auto-loads .env). Never commit.
+.env
+ace/.env
+
+# macOS Finder metadata
+.DS_Store

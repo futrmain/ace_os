@@ -1,0 +1,21 @@
+{
+  "arrived_at": "2026-08-24T14:24:00Z",
+  "sources": [
+    {
+      "source_id": "rollback-no-recovery",
+      "kind": "rollback_observation",
+      "fact": "Five minutes after the storefront rollback completed, purchase completion and payment-session success remain degraded."
+    },
+    {
+      "source_id": "adapter-auth-errors",
+      "kind": "service_log_aggregate",
+      "fact": "The eu-west-3 payment-session adapter pool reports provider token-refresh failures with HTTP 401."
+    },
+    {
+      "source_id": "credential-rotation-event",
+      "kind": "change_record",
+      "fact": "A scheduled provider credential rotation was recorded for the eu-west-3 adapter pool at 14:02 UTC."
+    }
+  ],
+  "caution": "The timing and records are evidence inputs. They do not establish root cause by themselves."
+}

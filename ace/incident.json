@@ -1,0 +1,39 @@
+{
+  "incident_id": "CK-2026-0824-A",
+  "opened_at": "2026-08-24T14:12:00Z",
+  "summary": "Purchase completion is down in Germany and Sweden shortly after a storefront deployment.",
+  "requested_handoff": [
+    "impact",
+    "current_hypothesis",
+    "supporting_evidence",
+    "conflicting_evidence",
+    "next_action",
+    "proposed_memory"
+  ],
+  "sources": [
+    {
+      "source_id": "deploy-storefront-2026.34.1",
+      "kind": "change_record",
+      "observed_at": "2026-08-24T13:55:00Z",
+      "fact": "storefront-api version 2026.34.1 reached 100 percent in Europe."
+    },
+    {
+      "source_id": "metrics-storefront-1415",
+      "kind": "service_metric",
+      "observed_at": "2026-08-24T14:15:00Z",
+      "fact": "storefront-api HTTP 5xx rate remains near baseline."
+    },
+    {
+      "source_id": "metrics-payment-1415",
+      "kind": "service_metric",
+      "observed_at": "2026-08-24T14:15:00Z",
+      "fact": "payment-session success fell from 98.2 percent to 79.2 percent while provider HTTP 401 responses rose to 17.6 percent."
+    },
+    {
+      "source_id": "impact-ios-de-se",
+      "kind": "player_impact",
+      "observed_at": "2026-08-24T14:15:00Z",
+      "fact": "Purchase completion is down about 20 percent for iOS in Germany and Sweden; Android is near baseline."
+    }
+  ]
+}
