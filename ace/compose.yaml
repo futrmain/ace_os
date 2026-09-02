@@ -7,6 +7,8 @@ services:
       - "8010:8010"
     logging:
       driver: "journald"
+    depends_on:
+      - mobkit
     volumes:
       - type: bind
         source: /home/ace-user/ace/nginx/nginx.conf
@@ -15,6 +17,88 @@ services:
       - type: bind
         source: /home/ace-user/ace/nginx/conf/
         target: /nginx_conf/
+        read_only: true
+      # static UI
+      - type: bind
+        source: /home/ace-user/ace/webui/
+        target: /usr/share/nginx/html/
+        read_only: true
+      # demo payloads — SEPARATE dir (not nested under the read-only html mount)
+      - type: bind
+        source: /home/ace-user/ace/incident.json
+        target: /payloads/incident.json
+        read_only: true
+      - type: bind
+        source: /home/ace-user/ace/late-evidence.json
+        target: /payloads/late-evidence.json
+        read_only: true
+    cap_drop:
+      - ALL
+
+  # Rust library host embedding the meerkat mob runtime; serves the console on 0.0.0.0:8090.
+  mobkit:
+    build: ./mobkit-host
+    pull_policy: missing            # reuse the heavy Rust image; rebuild with `docker compose build mobkit`
+    expose:
+      - "8090"                      # not published; only reachable inside the compose network
+    logging:
+      driver: "journald"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in ace/.env}
+      RUST_LOG: "info,meerkat=debug,meerkat_runtime=debug,meerkat_workgraph=debug"
+    volumes:
+      - type: bind
+        source: /home/ace-user/ace/mobkit-host/config.toml
+        target: /app/config.toml
+        read_only: true
+      - type: bind
+        source: /home/ace-user/ace/mobkit-host/mob.toml
+        target: /app/mob.toml
+        read_only: true
+    tmpfs:
+      - /srv/mobkit/state           # clean slate on every --force-recreate (named volume for durable)
+    cap_drop:
+      - ALL
+
+  # Deterministic RCA protocol; sole WorkGraph writer.
+  controller:
+    image: python:3.12
+    command: ["python", "-u", "/controller.py"]
+    depends_on:
+      - mobkit
+    restart: unless-stopped
+    logging:
+      driver: "journald"
+    environment:
+      RPC: "http://mobkit:8090/console/rpc"
+      HEALTH: "http://mobkit:8090/healthz"
+      POLL_SECONDS: "1.5"
+      ASK_TIMEOUT: "45"
+      ASK_ATTEMPTS: "3"
+    volumes:
+      - type: bind
+        source: /home/ace-user/ace/controller/controller.py
+        target: /controller.py
+        read_only: true
+    cap_drop:
+      - ALL
+
+  # One-shot idempotent roster seeder.
+  seed:
+    image: python:3.12-slim
+    command: ["python", "-u", "/seed.py"]
+    depends_on:
+      - mobkit
+    restart: "no"
+    logging:
+      driver: "journald"
+    environment:
+      RPC: "http://mobkit:8090/console/rpc"
+      HEALTH: "http://mobkit:8090/healthz"
+    volumes:
+      - type: bind
+        source: /home/ace-user/ace/seed/seed.py
+        target: /seed.py
         read_only: true
     cap_drop:
       - ALL

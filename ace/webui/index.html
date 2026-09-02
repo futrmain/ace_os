@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCA Operator Console</title>
+<style>
+  :root{
+    --bg:#e9e9e9; --panel:#fafafa; --border:#8a8a8a; --ink:#2b2b2b; --muted:#666;
+    --open:#2f6bd6; --failed:#c0392b; --user:#3a9d3a; --operator:#2f6bd6;
+    --yes:#2a8a8a; --no:#e08a1e; --send:#3f6fe0;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* Full-width top bar: app title + RESET */
+  .topbar{flex:none;display:flex;align-items:center;gap:16px;
+          padding:10px 22px;background:#dcdcdc;border-bottom:1px solid var(--border);}
+  .topbar .app-title{flex:1;font-size:16px;font-weight:600;color:#444}
+  #reset{background:var(--failed);color:#fff;border:none;border-radius:999px;
+         padding:8px 22px;font-size:14px;font-weight:600;letter-spacing:.03em;cursor:pointer}
+  #reset:hover{filter:brightness(1.08)}
+  #reset:disabled{opacity:.5;cursor:default}
+
+  /* Main area: Facts (~10%) | workgraph | operator chat */
+  .wrap{flex:1;min-height:0;width:100%;max-width:1600px;margin:0 auto;padding:18px 22px;
+        display:grid;grid-template-columns:minmax(120px,10%) 1fr 440px;gap:22px;}
+  @media(max-width:1000px){
+    body{height:auto;overflow:auto}
+    .wrap{grid-template-columns:1fr;height:auto}
+  }
+  h2{font-weight:400;color:var(--muted);margin:0 0 8px;font-size:19px}
+  /* columns + their sections all shrink so the PANELS scroll, not the page */
+  .facts-col,.left,.chat,.sec{display:flex;flex-direction:column;min-height:0}
+  .left{gap:18px}
+  .sec.hyps-sec{flex:1 1 38%}
+  .sec.tests-sec{flex:1 1 62%}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:2px;
+         padding:12px 14px;overflow-y:auto;min-height:0}
+  #facts{flex:1}
+  #hyps{flex:1;min-height:80px}
+  #tests{flex:1;min-height:120px}
+
+  /* Facts list (read-only, numbered F001..) */
+  .fact{padding:2px 4px;font-size:14px;white-space:pre-wrap}
+  .fact .fid{color:var(--ink);font-weight:600;margin-right:5px}
+  .row{padding:3px 4px;border-radius:3px;white-space:pre-wrap;font-size:15px}
+  .hyp .st{font-style:normal}
+  .hyp.open .st,.hyp.open .title{color:var(--open)}
+  .hyp.failed .st,.hyp.failed .title{color:var(--failed)}
+  .hyp .id{color:var(--ink);font-weight:600;margin:0 2px}
+  .hyp .cnt{color:var(--muted)}
+  .hyp .falsifiers{color:var(--failed);font-size:12.5px;margin:2px 0 0 20px;opacity:.85}
+  .test .id{font-weight:600}
+  .test .rel{color:var(--muted)}
+  .test .outcome{color:var(--muted);font-style:italic}
+  .test .outcome.pending{color:#b8860b;font-style:normal}
+  .test .src{color:#999;font-size:12px;font-style:italic}
+  .test.open{cursor:pointer}
+  .test.open:hover{background:#eef2f7}
+  .test.answered{color:#777}
+  .test.answered .id{color:#777}
+  .test.sel{background:#dfe9f7;outline:1px solid var(--send)}
+  .test.answered-yes{border-left:3px solid var(--yes)}
+  .test.answered-no{border-left:3px solid var(--no)}
+  .empty{color:#999;font-style:italic;padding:6px 4px}
+
+  /* Tests toolbar: selected test + YES/NO */
+  .tools{display:flex;align-items:center;gap:14px;margin-top:2px}
+  .sel-label{color:var(--muted);flex:1;font-size:14px}
+  .pill{border:none;color:#fff;border-radius:999px;padding:10px 26px;font-size:15px;
+        cursor:pointer;opacity:.55;transition:opacity .12s}
+  .pill:enabled{opacity:1}
+  .pill.yes{background:var(--yes)} .pill.no{background:var(--no)}
+  .pill.sub{background:#2f6bd6}
+  .pill:disabled{cursor:default}
+
+  /* SUB AGENT splash */
+  #splash{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.92);
+          display:none;flex-direction:column;align-items:center;justify-content:center;
+          gap:18px;cursor:pointer}
+  #splash.show{display:flex}
+  #splash img{max-width:92vw;max-height:82vh;border-radius:6px;box-shadow:0 0 60px rgba(0,0,0,.6)}
+  #splash .hint{color:#eee;font-size:16px;letter-spacing:.05em;opacity:.8}
+
+  /* Operator chat */
+  #log{flex:1;min-height:120px}
+  .msg{margin:0 0 10px}
+  .msg .who{font-weight:600}
+  .msg.user .who{color:var(--user)}
+  .msg.operator .who{color:var(--operator)}
+  .composer{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+  .composer.locked{opacity:.6}
+  #input{height:70px;resize:vertical;border:1px solid var(--border);border-radius:2px;
+         padding:8px;font:inherit}
+  .send-row{display:flex;justify-content:flex-end}
+  #send{background:var(--send);color:#fff;border:none;border-radius:999px;
+        padding:9px 30px;font-size:15px;cursor:pointer}
+  #status{font-size:12px;color:var(--muted);margin-left:4px;align-self:center;flex:1}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#bbb;margin-right:5px;vertical-align:middle}
+  .dot.ok{background:#2a8a2a}.dot.err{background:#c0392b}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="app-title">RCA Operator Console</span>
+  <button id="reset" title="Clear the graph and chat and start a fresh session">RESET</button>
+</div>
+<div class="wrap">
+  <!-- FACTS (leftmost, ~10% width, read-only list) -->
+  <div class="facts-col">
+    <h2>Facts</h2>
+    <div id="facts" class="panel"><div class="empty">no facts yet</div></div>
+  </div>
+
+  <!-- MIDDLE: workgraph -->
+  <div class="left">
+    <div class="sec hyps-sec">
+      <h2>Hypotheses (supporting | conflicting facts)</h2>
+      <div id="hyps" class="panel"><div class="empty">waiting for workgraph…</div></div>
+    </div>
+    <div class="sec tests-sec">
+      <h2>Tests (related hypo) (outcome)</h2>
+      <div id="tests" class="panel"><div class="empty">no tests yet</div></div>
+      <div class="tools">
+        <span class="sel-label" id="sel-label">Select a test to answer it</span>
+        <button class="pill yes" id="btn-yes" disabled>YES</button>
+        <button class="pill no"  id="btn-no"  disabled>NO</button>
+        <button class="pill sub" id="btn-sub" disabled>SUB AGENT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: operator chat -->
+  <div class="chat">
+    <h2>Operator chat</h2>
+    <div id="log" class="panel"><div class="empty">no messages yet</div></div>
+    <div class="composer">
+      <textarea id="input" placeholder="Describe an incident and its facts, or add facts to the current one…"></textarea>
+      <div class="send-row">
+        <span id="status"><span class="dot" id="dot"></span><span id="status-txt">connecting…</span></span>
+        <button id="send">SEND</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SUB AGENT splash overlay (starts hidden; src set on demand so it plays fresh) -->
+<div id="splash">
+  <img id="splash-gif" alt="">
+  <div class="hint">click anywhere to dismiss</div>
+</div>
+
+<script>
+"use strict";
+const RPC = "/console/rpc";
+const POLL_MS = 1500;
+const COORD = "coordinator";
+
+let selectedTestId = null;          // real work_ id of the selected test
+let sending = false;                // an RPC send is in flight (this client)
+let uiLocked = false;               // controller is BUSY -> composer disabled
+// Optimistic lock: cover the gap between our send and the controller flipping
+// to busy. `pending` until we've observed a full busy->idle cycle (or timeout).
+let pending = false, sawBusy = false, pendingUntil = 0;
+function markPending(){ pending = true; sawBusy = false; pendingUntil = Date.now()+8000; }
+
+// ---- guided preload -----------------------------------------------------
+// After a reset / compose up (empty board), the composer is preloaded with the
+// incident payload; sending it preloads the late-evidence payload; sending THAT
+// leaves the composer blank and up to the operator.
+let incidentText = "", lateText = "";  // exact file text, fetched from nginx
+let preloadStage = 0;                  // 0=incident, 1=late-evidence, 2=free
+let preloadEpoch = null;               // reset epoch we've armed the preload for
+async function loadPreloads(){
+  try{ incidentText = (await (await fetch("/incident.json")).text()).trim(); }catch(e){ incidentText=""; }
+  try{ lateText     = (await (await fetch("/late-evidence.json")).text()).trim(); }catch(e){ lateText=""; }
+}
+// Re-arm to stage 0 (incident) whenever the board is empty for a NEW epoch
+// (first load or after a reset), without clobbering anything the user typed.
+function maybePreload(m){
+  const epoch = m.resetEpoch || "";
+  const empty = (m.facts.length + m.hyps.length + m.tests.length) === 0;
+  if(epoch !== preloadEpoch && empty){
+    preloadEpoch = epoch;
+    preloadStage = 0;
+    const input = document.getElementById("input");
+    if(incidentText && !uiLocked && !input.value.trim()) input.value = incidentText;
+  }
+}
+// Advance the preload one step after a successful send.
+function advancePreload(){
+  const input = document.getElementById("input");
+  if(preloadStage === 0){ preloadStage = 1; if(lateText) input.value = lateText; }
+  else if(preloadStage === 1){ preloadStage = 2; input.value = ""; }
+}
+
+async function rpc(method, params={}){
+  const body = JSON.stringify({jsonrpc:"2.0", id:method, method, params});
+  const res = await fetch(RPC, {method:"POST", headers:{"Content-Type":"application/json"}, body});
+  if(!res.ok) throw new Error(method+" HTTP "+res.status);
+  const d = await res.json();
+  if(d.error) throw new Error(method+" -> "+JSON.stringify(d.error));
+  return d.result;
+}
+
+function setStatus(ok, txt){
+  const dot=document.getElementById("dot");
+  dot.className = "dot"+(ok?" ok":" err");
+  document.getElementById("status-txt").textContent = txt;
+}
+
+// ---- workgraph ----------------------------------------------------------
+function labelOf(it){ return (it.labels||[])[0] || ""; }
+
+function buildModel(snap){
+  const allItems = snap.items || [];
+  const edges = snap.edges || [];
+  // Soft reset: hide everything created at/before the latest RESET marker item.
+  const resetEpoch = allItems.filter(i=>labelOf(i)==="reset")
+    .reduce((mx,i)=> (i.created_at||"")>mx ? (i.created_at||"") : mx, "");
+  const items = resetEpoch ? allItems.filter(i=> (i.created_at||"") > resetEpoch) : allItems;
+  const byId = {}; items.forEach(it => byId[it.id] = it);
+
+  const facts = items.filter(i=>labelOf(i)==="fact").sort(byCreated);
+  const hyps  = items.filter(i=>labelOf(i)==="hypothesis").sort(byCreated);
+  const tests = items.filter(i=>labelOf(i)==="test").sort(byCreated);
+
+  // friendly ids
+  const fid = {}; facts.forEach((f,i)=> fid[f.id] = "F"+pad(i+1));
+  const hid = {}; hyps.forEach((h,i)=> hid[h.id] = "H"+pad(i+1));
+  const tid = {}; tests.forEach((t,i)=> tid[t.id] = "T"+pad(i+1));
+
+  // test -> parent hypothesis (via parent edge)
+  const testParent = {};
+  edges.filter(e=>e.kind==="parent").forEach(e=>{
+    if(byId[e.from_id] && labelOf(byId[e.from_id])==="test"
+       && byId[e.to_id] && labelOf(byId[e.to_id])==="hypothesis")
+      testParent[e.from_id] = e.to_id;
+  });
+
+  // Per-hypothesis edge reads. The controller encodes three things as hyp->X:
+  //   hyp --derived_from--> fact = a SUPPORTING fact
+  //   hyp --related-->      fact = a CONFLICTING fact
+  //   hyp --related-->      test = the test whose answer FALSIFIED this hyp
+  // (fact vs test targets are told apart by the target item's label.)
+  const support = {}, conflict = {}, falsifiers = {};
+  hyps.forEach(h=>{ support[h.id]=0; conflict[h.id]=0; falsifiers[h.id]=[]; });
+  edges.forEach(e=>{
+    const from=byId[e.from_id], to=byId[e.to_id];
+    if(!from||!to || labelOf(from)!=="hypothesis") return;
+    if(labelOf(to)==="fact"){
+      if(e.kind==="derived_from") support[from.id]++;
+      else if(e.kind==="related") conflict[from.id]++;
+    } else if(labelOf(to)==="test" && e.kind==="related"){
+      if(falsifiers[from.id]) falsifiers[from.id].push(to);
+    }
+  });
+  Object.keys(falsifiers).forEach(k=> falsifiers[k].sort(byCreated));
+
+  // Controller busy flag: latest item labelled "control", read from the RAW
+  // (un-epoch-filtered) items so a reset never hides it.
+  const ctrl = allItems.filter(i=>labelOf(i)==="control").sort(byCreated).slice(-1)[0];
+  const working = !!ctrl && /busy/i.test(ctrl.description||"");
+
+  return {byId, facts, hyps, tests, fid, hid, tid, testParent, support, conflict, falsifiers, working, resetEpoch};
+}
+function byCreated(a,b){ return (a.created_at||"").localeCompare(b.created_at||""); }
+function pad(n){ return String(n).padStart(3,"0"); }
+
+// The controller records a test's answer in its description as
+// "OPERATOR_ANSWER: yes|no" (operator clicked) or "FACT_ANSWER: yes|no"
+// (already settled by the known facts). Absent -> unanswered/open.
+function testAnswer(it){
+  const m = /(OPERATOR|FACT)_ANSWER:\s*(yes|no)/i.exec(it.description||"");
+  return m ? {ans:m[2].toLowerCase(), src:m[1].toLowerCase()} : null;
+}
+
+function renderFacts(m){
+  const el = document.getElementById("facts");
+  if(!m.facts.length){ el.innerHTML = '<div class="empty">no facts yet</div>'; return; }
+  el.innerHTML = m.facts.map(f=>
+    `<div class="fact"><span class="fid">${m.fid[f.id]}</span>${esc(f.title)}</div>`).join("");
+}
+
+function renderHyps(m){
+  const el = document.getElementById("hyps");
+  if(!m.hyps.length){ el.innerHTML = '<div class="empty">no hypotheses yet</div>'; return; }
+  el.innerHTML = m.hyps.map(h=>{
+    const st = h.status==="failed" ? "failed" : "open";
+    let row = `<div class="row hyp ${st}">`
+      + `<span class="st">(${st})</span> `
+      + `<span class="id">${m.hid[h.id]}</span> `
+      + `<span class="cnt">(${m.support[h.id]} | ${m.conflict[h.id]})</span> `
+      + `<span class="title">${esc(h.title)}</span>`;
+    // A falsified hypothesis names the exact test(s) the controller linked as
+    // its falsifier; a hypothesis falsified by stated facts (no test) says so.
+    if(st==="failed"){
+      const fal = m.falsifiers[h.id] || [];
+      let ev;
+      if(fal.length){
+        ev = fal.map(t=>{
+          const a = testAnswer(t);
+          const val = a ? (a.ans==="yes"?"Yes":"No") : "answered";
+          return m.tid[t.id]+" ("+val+")";
+        }).join(", ");
+      } else {
+        ev = "stated facts";
+      }
+      row += `<div class="falsifiers">falsified by: ${esc(ev)}</div>`;
+    }
+    return row + `</div>`;
+  }).join("");
+}
+
+function renderTests(m){
+  const el = document.getElementById("tests");
+  if(!m.tests.length){ el.innerHTML = '<div class="empty">no tests yet</div>'; selectTest(null); return; }
+  // newest first reads best for an operator working the queue
+  const ordered = m.tests.slice().reverse();
+  el.innerHTML = ordered.map(t=>{
+    const a = testAnswer(t);                 // {ans, src} | null
+    const rel = m.testParent[t.id] ? m.hid[m.testParent[t.id]] : "?";
+    const isOpen = t.status==="open" && !a;  // status is authoritative
+    // EVERY test shows a status: (Pending) | (Yes) | (No).
+    let outcome, stcls;
+    if(isOpen){
+      outcome = ` <span class="outcome pending">(Pending)</span>`;
+      stcls = "open";
+    } else if(a){
+      outcome = ` <span class="outcome">(${a.ans==="yes"?"Yes":"No"})</span>`
+              + (a.src==="fact" ? ` <span class="src">from facts</span>` : ``);
+      stcls = "answered answered-"+a.ans;
+    } else {
+      outcome = ` <span class="outcome">(Answered)</span>`;  // closed, unparsed
+      stcls = "answered";
+    }
+    const sel = (t.id===selectedTestId ? " sel" : "");
+    return `<div class="row test ${stcls}${sel}" data-id="${t.id}" data-open="${isOpen?1:0}">`
+      + `<span class="id">${m.tid[t.id]}</span> `
+      + `<span class="rel">(${rel})</span> `
+      + `${esc(t.title)}${outcome}</div>`;
+  }).join("");
+  // only OPEN (unanswered) tests are selectable / answerable
+  el.querySelectorAll('.test[data-open="1"]').forEach(node=>{
+    node.onclick = ()=> selectTest(node.dataset.id);
+  });
+  // clear selection if the selected test vanished or was just answered
+  const stillOpen = m.tests.some(t=>t.id===selectedTestId && t.status==="open" && !testAnswer(t));
+  if(selectedTestId && !stillOpen) selectTest(null);
+}
+
+function selectTest(id){
+  selectedTestId = id;
+  document.querySelectorAll(".test").forEach(n=>
+    n.classList.toggle("sel", n.dataset.id===id));
+  const lbl = document.getElementById("sel-label");
+  if(id){
+    const node=[...document.querySelectorAll(".test")].find(n=>n.dataset.id===id);
+    lbl.textContent = node ? "Answer: "+node.textContent.trim() : "Select a test to answer it";
+  } else {
+    lbl.textContent = uiLocked ? "Working — please wait…" : "Select a test to answer it";
+  }
+  refreshControls();
+}
+
+// Single source of truth for which controls are enabled. `sending` = our own
+// RPC in flight; `uiLocked` = controller busy. The textarea stays usable so a
+// draft is never lost; only the actions that submit are disabled.
+function refreshControls(){
+  const busy = sending || uiLocked;
+  document.getElementById("send").disabled  = busy;
+  document.getElementById("reset").disabled = busy;
+  const on = !!selectedTestId && !busy;
+  document.getElementById("btn-yes").disabled = !on;
+  document.getElementById("btn-no").disabled  = !on;
+  document.getElementById("btn-sub").disabled = !on;
+  document.querySelector(".composer").classList.toggle("locked", uiLocked);
+}
+
+// ---- chat ---------------------------------------------------------------
+function frameText(f){
+  const msg = (f.payload && f.payload.message) || {};
+  const parts = (msg.blocks||[]).filter(b=>b.block_type==="text")
+                  .map(b=>(b.data&&b.data.text)||"");
+  return parts.filter(Boolean).join("\n").trim();
+}
+function renderChat(frames){
+  // Soft reset: show only chat after the last `controller:reset` boundary frame.
+  let start = 0;
+  frames.forEach((f,i)=>{
+    const o = (f.payload && f.payload.origin) || "";
+    if(o.startsWith("controller:reset")) start = i+1;
+  });
+  const msgs = [];
+  for(const f of frames.slice(start)){
+    const origin = (f.payload && f.payload.origin) || "";
+    if(f.kind==="user_input" && origin.startsWith("console")){
+      const c = (f.payload && f.payload.content) || "";
+      if(c.trim()) msgs.push({who:"User", cls:"user", text:c.trim()});
+    } else if(f.kind==="user_input" && origin.startsWith("controller:status")){
+      const c = (f.payload && f.payload.content) || "";
+      if(c.trim()) msgs.push({who:"Operator", cls:"operator", text:c.trim()});
+    }
+    // ignore: controller re-drive prompts, coordinator raw-JSON replies, frame_updated
+  }
+  const el = document.getElementById("log");
+  if(!msgs.length){ el.innerHTML = '<div class="empty">no messages yet</div>'; return; }
+  const wasBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.innerHTML = msgs.map(m=>
+    `<div class="msg ${m.cls}"><span class="who">${m.who}:</span> ${esc(m.text)}</div>`).join("");
+  if(wasBottom) el.scrollTop = el.scrollHeight;
+}
+
+// ---- send ---------------------------------------------------------------
+async function send(content){
+  const key = "ui-"+Date.now()+"-"+Math.random().toString(36).slice(2,8);
+  await rpc("mobkit/console/send", {
+    identity: COORD, origin:"console:ui", idempotency_key:key,
+    handling_mode:"queue", content
+  });
+}
+async function onSend(){
+  const ta = document.getElementById("input");
+  const txt = ta.value.trim();
+  if(!txt || sending || uiLocked) return;
+  sending = true; markPending(); refreshControls();
+  try{ await send(txt); ta.value=""; advancePreload(); await tick(); }
+  catch(e){ setStatus(false, "send failed: "+e.message); }
+  finally{ sending=false; refreshControls(); }
+}
+async function answer(val){          // val = "YES" | "NO"
+  if(!selectedTestId || sending || uiLocked) return;
+  sending = true; markPending(); refreshControls();
+  try{ await send("TEST "+selectedTestId+" "+val); await tick(); }
+  catch(e){ setStatus(false, "answer failed: "+e.message); }
+  finally{ sending=false; refreshControls(); }
+}
+async function onReset(){            // clears the board back to a fresh session
+  if(sending || uiLocked) return;   // reset is fast; not allowed mid-generation
+  if(!confirm("Clear the entire board — graph and chat — and start a fresh session?")) return;
+  sending = true; refreshControls();
+  // clear input so the incident payload re-preloads once the new epoch lands
+  try{ await send("RESET"); selectTest(null); document.getElementById("input").value=""; await tick(); }
+  catch(e){ setStatus(false, "reset failed: "+e.message); }
+  finally{ sending=false; refreshControls(); }
+}
+
+// ---- poll loop ----------------------------------------------------------
+async function tick(){
+  try{
+    const [snap, tl] = await Promise.all([
+      rpc("mobkit/workgraph/snapshot", {include_terminal:true}),
+      rpc("mobkit/console/query_timeline", {identity:COORD}),
+    ]);
+    const m = buildModel(snap);
+    renderFacts(m); renderHyps(m); renderTests(m);
+    renderChat(tl.frames||[]);
+    maybePreload(m);
+    // Lock state: controller busy, or our optimistic window until it goes busy.
+    if(m.working) sawBusy = true;
+    if(pending && sawBusy && !m.working) pending = false;     // full busy->idle seen
+    if(pending && Date.now() > pendingUntil) pending = false; // safety net
+    const locked = m.working || (pending && !sawBusy);
+    if(locked !== uiLocked){ uiLocked = locked; refreshControls(); }
+    setStatus(true, (locked ? "working… · " : "live · ")
+      + m.facts.length+" facts, "+m.hyps.length+" hyp, "+m.tests.length+" tests");
+  }catch(e){
+    setStatus(false, e.message);
+  }
+}
+
+// ---- SUB AGENT ----------------------------------------------------------
+const RICKROLL = "https://media1.tenor.com/m/Lw4_T2lRPGoAAAAd/rickroll-meme.gif";
+function showSplash(){
+  document.getElementById("splash-gif").src = RICKROLL;   // (re)load -> plays
+  document.getElementById("splash").classList.add("show");
+}
+function hideSplash(){
+  document.getElementById("splash").classList.remove("show");
+  document.getElementById("splash-gif").removeAttribute("src");
+}
+
+document.getElementById("send").onclick = onSend;
+document.getElementById("reset").onclick = onReset;
+document.getElementById("btn-sub").onclick = showSplash;
+document.getElementById("splash").onclick = hideSplash;
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") hideSplash(); });
+document.getElementById("btn-yes").onclick = ()=>answer("YES");
+document.getElementById("btn-no").onclick  = ()=>answer("NO");
+document.getElementById("input").addEventListener("keydown", e=>{
+  if(e.key==="Enter" && (e.metaKey||e.ctrlKey)){ e.preventDefault(); onSend(); }
+});
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+loadPreloads().then(()=>{ tick(); setInterval(tick, POLL_MS); });
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[package]
+name = "mobkit-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# ⚠ version pins matter — cargo errors if wrong, but this saves the round-trip.
+meerkat        = { version = "=0.8.31", features = ["comms"] }  # "comms" feature IS required for the comms tool group
+meerkat-mobkit = "=0.8.28"                                       # newest publish; it in turn pins meerkat =0.8.31
+axum   = "0.8"                                                   # must match meerkat-mobkit's axum
+tokio  = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+
+[profile.release]
+opt-level = 1   # ⚠ opt-level=3 OOM-kills (SIGKILL) the big meerkat crates on a small host;
+                # this binary is I/O-bound so opt-level=1 costs nothing at runtime.

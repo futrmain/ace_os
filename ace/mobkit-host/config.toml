@@ -1,0 +1,34 @@
+# meerkat runtime config, merged onto Config::default().
+# LLM backend = OpenAI gpt-4.1, talked to directly (no local model, no sidecar proxy).
+#
+# ⚠ OpenAI-key gotcha: a missing/empty/quota-exhausted key fails SILENTLY — turns stick at
+#   `delivered` with no timeline or log error. If turns never complete, check OpenAI credit FIRST.
+
+[self_hosted.servers.openai]
+transport = "openai_compatible"      # OpenAI is OpenAI-compatible; same transport path
+base_url  = "https://api.openai.com/v1"
+api_style = "chat_completions"
+
+[self_hosted.models.dev]             # mob.toml refers to model alias "dev"
+server = "openai"
+remote_model = "gpt-4.1"             # sent verbatim to OpenAI; no catalog entry needed
+display_name = "GPT-4.1 (OpenAI)"
+context_window = 128000
+max_output_tokens = 8192
+
+[realm.global]
+default_binding = "openai"
+
+[realm.global.backend.openai]
+provider = "self_hosted"
+backend_kind = "self_hosted"
+server = "openai"
+
+[realm.global.auth.openai_auth]
+provider = "self_hosted"
+auth_method = "static_bearer"
+source = { kind = "env", env = "OPENAI_API_KEY" }   # key read from env INSIDE the container; never in this file
+
+[realm.global.binding.openai]
+backend_profile = "openai"
+auth_profile = "openai_auth"

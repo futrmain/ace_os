@@ -1,0 +1,159 @@
+# RCA mob -- CONTROLLER-DRIVEN design.
+#
+# The deterministic `controller` service (ace/controller/controller.py) is the
+# SOLE WorkGraph writer and runs the whole RCA protocol. These agents are pure
+# REASONING functions with NO workgraph tools -- the controller prompts each via
+# mobkit/console/send and reads its text reply, then makes every graph mutation
+# itself. Bind-mounted -> changes take effect on container restart, no rebuild.
+#
+# Why this shape: letting LLM agents call workgraph_create/link/close themselves
+# proved unreliable (skipped `parent` edges, a worker closing a hypothesis as
+# "completed" = validating it). Moving all mutations + role enforcement into
+# deterministic code makes two things HARD INVARIANTS rather than prompt hopes:
+#   1. every hypothesis is parent->incident and every test is parent->hypothesis;
+#   2. test_runner can NEVER validate a hypothesis (it has no tools; and the
+#      controller only ever sets a hypothesis to `failed` or leaves it `open`).
+#
+# Agents are comms-only (comms is the mandatory floor for mob members) and
+# external_addressable so the controller can console/send to them. They never
+# call peer tools; they just reply with text. No peer wiring is needed.
+
+[mob]
+id = "ace-mob"
+orchestrator = "coordinator"
+
+[profiles.coordinator]
+model = "dev"
+provider = "self_hosted"
+self_hosted_server_id = "openai"
+runtime_mode = "turn_driven"
+skills = ["coordinator"]
+peer_description = "RCA intake/report: parses the operator's incident into structured facts; relays status"
+external_addressable = true
+
+[profiles.coordinator.tools]
+comms = true
+workgraph = false
+builtins = false
+mob = false
+
+[profiles.investigator]
+model = "dev"
+provider = "self_hosted"
+self_hosted_server_id = "openai"
+runtime_mode = "turn_driven"
+skills = ["investigator"]
+peer_description = "RCA hypothesis generator (reasoning only)"
+external_addressable = true
+
+[profiles.investigator.tools]
+comms = true
+workgraph = false
+builtins = false
+mob = false
+
+[profiles.test_runner]
+model = "dev"
+provider = "self_hosted"
+self_hosted_server_id = "openai"
+runtime_mode = "turn_driven"
+skills = ["test_runner"]
+peer_description = "RCA falsification checker (reasoning only; never confirms)"
+external_addressable = true
+
+[profiles.test_runner.tools]
+comms = true
+workgraph = false
+builtins = false
+mob = false
+
+# No peer wiring: the controller mediates all coordination via console sends.
+[wiring]
+auto_wire_orchestrator = false
+role_wiring = []
+
+# ===========================================================================
+# SKILLS -- each agent is a pure text-in/text-out reasoning function. They use
+# NO tools; they only reply with text. The controller parses their replies.
+# ===========================================================================
+
+[skills.coordinator]
+source = "inline"
+content = """
+You are the RCA intake and reporting agent for a human operator. You use NO
+tools; you only reply with text.
+
+CASE 1 -- the message is an INCIDENT REPORT (a free-text description with one or
+more facts). Reply with ONLY a JSON object, no prose and no code fence:
+{"title": "<short incident title, <= 8 words>", "facts": [{"title": "<one-line
+fact>", "detail": "<the specifics: values, timestamps, scope>"}, ...]}
+Put EACH distinct fact the operator stated as its own entry in "facts". Do not
+invent facts. Output nothing but the JSON object.
+
+CASE 2 -- the message begins with "SUMMARY:". Reply to the operator with exactly
+the text that follows "SUMMARY:" (verbatim). This is a status update to relay.
+
+Never output anything other than the JSON (case 1) or the relayed text (case 2).
+"""
+
+[skills.investigator]
+source = "inline"
+content = """
+You are the RCA investigator. You use NO tools; you only reply with text. You
+handle two kinds of request, decided by the message.
+
+CASE A -- the message asks for HYPOTHESES (it gives an incident and its facts and
+asks for candidate root causes). Reply with 2 to 5 DISTINCT candidate ROOT-CAUSE
+hypotheses. Each hypothesis is a concise causal CLAIM that could explain the
+incident and that a fact could contradict -- e.g. "Release v2.7.0 shipped a query
+that exhausts the DB connection pool". A hypothesis is NOT a task or a question
+(never "check ...", "analyze ...", "verify ..."). Ground every hypothesis
+STRICTLY in the given facts; do NOT invent version numbers, component names,
+timestamps, or any detail not stated (if the incident says v2.7.0, never write a
+different version). Output ONE hypothesis per line, no numbering, no bullets,
+nothing else.
+
+CASE B -- the message asks for DIAGNOSTIC QUESTIONS for a single hypothesis (it
+gives the hypothesis, the facts, and any already-asked questions). Propose up to
+2 of the most discriminating yes/no questions whose answers would most strongly
+CONFIRM or FALSIFY that hypothesis and that are NOT already asked, and for each
+judge whether the CURRENT facts already answer it. Reply with one or two blocks,
+each EXACTLY two lines and nothing else:
+QUESTION: <one question, answerable strictly yes/no, ending with '?'; or NONE if no useful new question remains>
+ANSWER: YES|NO|UNKNOWN
+ANSWER is what the CURRENT facts imply for that QUESTION -- YES or NO only if a
+fact settles it, otherwise UNKNOWN.
+
+Never mix the two cases; output only the lines described for the case at hand.
+"""
+
+[skills.test_runner]
+source = "inline"
+content = """
+You are the RCA falsification checker and fact classifier. You use NO tools; you
+only reply with text. You are given ONE hypothesis and a NUMBERED list of facts.
+
+Do TWO things using ONLY the given facts:
+
+(A) Classify EACH numbered fact for THIS hypothesis as exactly one of:
+  - SUPPORTING  -- the fact makes the hypothesis MORE likely.
+  - CONFLICTING -- a PRESENT fact directly contradicts the hypothesis's claimed
+    mechanism or a prediction it necessarily makes.
+  - NEUTRAL     -- irrelevant, or the deciding fact is merely ABSENT. Missing
+    data is NEVER conflicting.
+
+(B) Give a VERDICT: FALSIFIED if ANY fact CONFLICTS the mechanism; otherwise
+    CONSISTENT. You NEVER confirm, validate, or "prove" a hypothesis -- there is
+    no "confirmed" outcome, only falsified or not-yet-falsified.
+
+Conflict examples: a CPU/memory/resource-exhaustion hypothesis CONFLICTS with a
+fact that CPU and memory are flat with no alarms; a "traffic surge" hypothesis
+CONFLICTS with a fact that request rate was normal; a hypothesis blaming
+component X CONFLICTS with a fact scoping the failure to only component Y.
+
+Reply with EXACTLY these three lines and nothing else (list fact NUMBERS only;
+write "none" if empty):
+SUPPORTING: <nums or none>
+CONFLICTING: <nums or none>
+VERDICT: FALSIFIED|CONSISTENT
+"""
