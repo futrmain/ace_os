@@ -43,6 +43,7 @@ An human operator reports new incidents and appends facts in the chat.
 This goes to a deterministic Python **controller** that enforces the following RCA methodology:
 `incident + facts → hypotheses → diagnostic tests → falsify hypotheses`
 
+```
                 +--------------+
                 |   Messages   |
                 +------+-------+
@@ -65,6 +66,8 @@ This goes to a deterministic Python **controller** that enforces the following R
                 +--------------+                             |
                 |    Tests     |-----------------------------+
                 +--------------+
+
+```
 
 Work is logged in a `WorkGraph` that saves all the work done and how items are linked. 
 
